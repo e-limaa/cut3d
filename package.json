@@ -1,0 +1,9 @@
+{
+  "name": "cut3d-workspace",
+  "private": true,
+  "workspaces": ["studio"],
+  "scripts": {
+    "build": "npm run build --workspace=studio",
+    "test": "npm run test --workspace=studio"
+  }
+}
