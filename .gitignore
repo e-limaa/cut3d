@@ -1,0 +1,17 @@
+node_modules/
+.pnpm-store/
+.npm-cache/
+__pycache__/
+*.pyc
+*.blend
+*.blend1
+*.zip
+*.png
+*.log
+*.tsbuildinfo
+studio/dist/
+studio/diagnostics/
+.vercel/
+.env
+.env.*
+!.env.example
