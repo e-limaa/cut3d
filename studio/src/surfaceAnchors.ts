@@ -177,6 +177,17 @@ export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index:
     const endpoint = index === 0 || index === cut.points.length - 1;
     const sides: ('front'|'back')[] = endpoint ? ['front','back'] : [surfaceSide];
     const rails = { ...cut.rails };
+    const points = cut.points.slice();
+    const penCurves = { ...(cut.penCurves ?? {}) };
+    const previous = points[index];
+    const relative = new THREE.Vector3(...hit).sub(new THREE.Vector3(...cut.origin));
+    const target: [number, number] = [relative.dot(new THREE.Vector3(...cut.u)), relative.dot(new THREE.Vector3(...cut.v))];
+    points[index] = target;
+    const curve = penCurves[index];
+    if (curve) {
+      const delta: [number, number] = [target[0] - previous[0], target[1] - previous[1]];
+      penCurves[index] = { in: [curve.in[0] + delta[0], curve.in[1] + delta[1]], out: [curve.out[0] + delta[0], curve.out[1] + delta[1]] };
+    }
     for (const side of sides) {
       const original = cut.rails[side];
       const rail = original.slice();
@@ -192,7 +203,7 @@ export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index:
       }
       rails[side] = rail;
     }
-    return { ...cut, rails };
+    return { ...cut, points, penCurves, rails };
   }
   const relative = hit.clone().sub(new THREE.Vector3(...cut.origin));
   const target: [number, number] = [relative.dot(new THREE.Vector3(...cut.u)), relative.dot(new THREE.Vector3(...cut.v))];

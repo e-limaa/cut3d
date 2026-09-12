@@ -208,7 +208,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
         return <SurfaceHandle key={`${side}-${index}`} point={point} selected={selectedPoint === index} color="#2f7f55" onPointerDown={event => {
           if (!projector.isVisible(point, camera.position)) return;
           event.stopPropagation(); const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=false;
-          onSelectPoint(index); dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind: 'anchor', index });
+          onSelectPoint(index); dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind: 'anchor', index, side });
         }}/>;
       })) : null}
       {editing && selectedPoint !== null && cut.penCurves?.[selectedPoint] ? (['front', 'back'] as const).flatMap(side => {
@@ -220,7 +220,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
           return <group key={`${side}-${selectedPoint}-${kind}`}><Line points={[anchor, handle]} color="#d89a3b" lineWidth={1.5} depthTest={false} renderOrder={11}/><SurfaceHandle point={handle} selected={dragged?.kind === kind && dragged.index === selectedPoint} color="#d89a3b" overlay onPointerDown={event => {
             if (!projector.isVisible(handle, camera.position)) return;
             event.stopPropagation(); const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=false;
-            dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind, index: selectedPoint });
+            dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind, index: selectedPoint, side });
           }}/></group>;
         });
       }) : null}

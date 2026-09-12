@@ -26,7 +26,7 @@ describe('surface anchored editing', () => {
     const ray = new THREE.Ray(new THREE.Vector3(1, 30, 4), new THREE.Vector3(0, -1, 0));
     const updated = dragPenControl(projector, cut, index, 'anchor', ray, 'back');
     expect(updated.rails!.front).toBe(cut.rails!.front);
-    expect(updated.points).toBe(cut.points);
+    expect(updated.points).not.toBe(cut.points);
     expect(updated.rails!.back[index]).toEqual(projector.hit(ray)!.toArray());
     for (let i=0;i<cut.points.length;i++) {
       if (i <= anchors[3] || i >= anchors[5]) expect(updated.rails!.back[i]).toBe(cut.rails!.back[i]);
