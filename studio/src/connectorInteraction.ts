@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import type {FreeCut} from './freeCut';
-import {cutRails} from './geometry/connectorFrame';
+import {cutRails, railParameters} from './geometry/connectorFrame';
 
 /** Pick the visible ruled surface and return connector coordinates on it. */
 export function pickConnectorPosition(cut:FreeCut, ray:THREE.Ray): {along:number;across:number}|null {
   const {front,back}=cutRails(cut);
+  const parameters=railParameters(cut);
   let distance=Infinity, result:{along:number;across:number}|null=null;
   for(let i=0;i<front.length-1;i++) {
     const vertices=[front[i],front[i+1],back[i],back[i+1]].map(p=>new THREE.Vector3(...p));
-    const uv=[[i/(front.length-1),0],[(i+1)/(front.length-1),0],[i/(front.length-1),1],[(i+1)/(front.length-1),1]];
+    const uv=[[parameters[i],0],[parameters[i+1],0],[parameters[i],1],[parameters[i+1],1]];
     for(const ids of [[0,1,2],[1,3,2]]) {
       const [a,b,c]=ids.map(j=>vertices[j]);
       const hit=ray.intersectTriangle(a,b,c,false,new THREE.Vector3());

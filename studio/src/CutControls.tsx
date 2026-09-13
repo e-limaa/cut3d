@@ -9,14 +9,14 @@ type Props = {
   cut: FreeCut | null; onCut: (cut: FreeCut) => void;
   drawing: boolean; startDraw: () => void; cancelDraw: () => void;
   editing: boolean; toggleEditing: () => void;
-  selectedPoint: number | null; togglePointCurve: () => void;
+  selectedPoint: number | null;
   editingConnector:boolean; toggleConnectorEditing:()=>void;
   busy: boolean; radius: number;
   offset: number; tilt: number; turn: number;
   setOffset: (value: number) => void; setTilt: (value: number) => void; setTurn: (value: number) => void; reset: () => void;
 };
 export default function CutControls(props: Props) {
-  const { mode, onMode, cut, onCut, drawing, startDraw, cancelDraw, editing, toggleEditing, selectedPoint, togglePointCurve, busy, radius, offset, tilt, turn, setOffset, setTilt, setTurn, reset } = props;
+  const { mode, onMode, cut, onCut, drawing, startDraw, cancelDraw, editing, toggleEditing, selectedPoint, busy, radius, offset, tilt, turn, setOffset, setTilt, setTurn, reset } = props;
   return <>
     <div className="mode-tabs" aria-label="Tipo de corte"><button className={mode === 'FREE' ? 'selected' : ''} disabled={busy} onClick={() => onMode('FREE')}><Pencil size={15}/>Livre</button><button className={mode === 'PLANE' ? 'selected' : ''} disabled={busy} onClick={() => onMode('PLANE')}><Scissors size={15}/>Plano</button></div>
     {mode === 'FREE' ? <>
@@ -24,14 +24,14 @@ export default function CutControls(props: Props) {
       <button className={drawing ? 'secondary full drawing-button' : 'primary full draw-button'} disabled={busy} onClick={drawing ? cancelDraw : startDraw}><Pencil size={16}/>{drawing ? 'Cancelar desenho · Esc' : cut ? 'Redesenhar traço' : 'Desenhar sobre o modelo'}</button>
       <p className="free-instruction">{drawing ? 'Arraste com o botão esquerdo. Comece e termine fora da região que quer separar. A câmera fica parada durante o desenho.' : cut ? 'Arraste cada ponto diretamente sobre o modelo. Os outros pontos permanecem no lugar.' : 'Enquadre a região, ative o desenho e atravesse a peça com uma curva.'}</p>
       {cut?.rails ? <button className="secondary full" disabled={busy || drawing} onClick={toggleEditing}><Pencil size={15}/>{editing ? 'Concluir edição dos pontos' : 'Editar pontos na superfície'}</button> : null}
-      {editing ? <div className="surface-edit-panel"><p>{selectedPoint === null ? 'Clique em um ponto para selecioná-lo' : `Ponto ${selectedPoint + 1} selecionado`}</p><small>Arraste o ponto para posicionar. Arraste fora dos pontos para girar.</small></div> : null}
+      {editing ? <div className="surface-edit-panel"><p>{selectedPoint === null ? 'Clique em um ponto para selecioná-lo' : `Ponto ${selectedPoint + 1} selecionado`}</p><small>Arraste o ponto para posicionar. Use Tornar ponto curvo para editar as alças. Arraste fora dos pontos para girar.</small></div> : null}
       {cut ? <fieldset disabled={busy || drawing} className="free-fields"><div className="control-header">{cut.rails ? 'SUPERFÍCIE DO CORTE' : 'ALCANCE DO CORTE'}</div>
         {!cut.rails ? <>
         <Slider label="Frente da faixa" value={cut.depthMax} min={-radius} max={radius} unit="mm" onChange={value => { const depth = cut.depthMax - cut.depthMin; onCut({ ...cut, depthMax: value, depthMin: value - depth }); }}/>
         <Slider label="Profundidade" value={cut.depthMax - cut.depthMin} min={Math.max(.01, radius * .0001)} max={radius * 2.1} unit="mm" onChange={value => onCut({ ...cut, depthMin: cut.depthMax - value })}/>
         </> : <p className="surface-lock-note">Pontos presos à malha · ao arrastar fora do modelo, o ponto permanece no último local válido.</p>}
         <Slider label="Espessura removida" value={cut.kerf} min={Math.max(.01, radius * .0001)} max={Math.max(1, radius * .03)} unit="mm" onChange={value => onCut({ ...cut, kerf: value })}/>
-        <div className="depth-legend"><span><i/>Contorno</span><span>{cut.rails ? `${cut.rails.front.length} controles` : `${cut.points.length} pontos`}</span></div>
+        <div className="depth-legend"><span><i/>Contorno</span><span>{cut.rails ? `${cut.bezier?.anchors.front.length ?? cut.rails.front.length} controles` : `${cut.points.length} pontos`}</span></div>
       </fieldset> : null}
       {cut ? <ConnectorControls cut={cut} onCut={onCut} disabled={busy || drawing || editing} editing={props.editingConnector} toggleEditing={props.toggleConnectorEditing}/> : null}
       <div className="tip"><p>Use um traço aberto. A faixa remove material na espessura indicada e deve atravessar a região para soltar uma peça. Confira o fundo para evitar atingir outra parte atrás.</p></div>

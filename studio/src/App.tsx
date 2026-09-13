@@ -8,7 +8,6 @@ import PlannedCutPreview from './PlannedCutPreview';
 import FreeCutEditor from './FreeCutEditor';
 import CutControls from './CutControls';
 import type { FreeCut } from './freeCut';
-import { penAnchorIndices } from './surfaceAnchors';
 
 class ViewerBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -71,21 +70,6 @@ export default function App() {
     setCuts(previous => [...previous, next]); setActiveId(next.id); setShowPlane(true); setEditingSurface(false); setEditingConnector(false); setDrawing(true); setError(null);
   }
   function changeMode(next: 'FREE' | 'PLANE') { setMode(next); setDrawing(false); setEditingSurface(false); setEditingConnector(false); setError(null); }
-  function toggleSelectedPointCurve() {
-    if (!freeCut || selectedSurfacePoint === null) return;
-    const curves = { ...(freeCut.penCurves ?? {}) };
-    if (curves[selectedSurfacePoint]) delete curves[selectedSurfacePoint];
-    else {
-      const anchors = penAnchorIndices(freeCut.points.length);
-      const position = anchors.indexOf(selectedSurfacePoint);
-      const previous = freeCut.points[anchors[Math.max(0, position - 1)]];
-      const anchor = freeCut.points[selectedSurfacePoint];
-      const next = freeCut.points[anchors[Math.min(anchors.length - 1, position + 1)]];
-      const tangent: [number, number] = [(next[0] - previous[0]) / 4, (next[1] - previous[1]) / 4];
-      curves[selectedSurfacePoint] = { in: [anchor[0] - tangent[0], anchor[1] - tangent[1]], out: [anchor[0] + tangent[0], anchor[1] + tangent[1]] };
-    }
-    receiveDraw({ ...freeCut, penCurves: curves });
-  }
   function restore() { parts.forEach(part => part.dispose()); setParts([]); setSelected(null); setError(null); }
   function resetCut() { setOffset(0); setTilt(0); setTurn(0); setError(null); }
   function savePlan() {
@@ -151,7 +135,7 @@ export default function App() {
         <div className="viewport-heading"><div className="breadcrumb">ESTÚDIO <span>/</span> {result ? 'INSPECIONAR PEÇAS' : 'PLANEJAR CORTE'}</div><div className="viewport-pill"><span/>{result ? `${parts.length} peças construídas` : 'Original preservado'}</div></div>
         <ViewerBoundary><Viewport model={model} normal={normal} offset={offset} parts={parts} exploded={exploded} showPlane={hasCut && mode === 'PLANE' && showPlane} reset={reset} wireframe={wireframe} selected={selected}>
           {!result && showPlane ? cuts.filter(cut => cut.id !== activeId).map(cut => <PlannedCutPreview key={cut.id} cut={cut} size={Math.max(model.dimensions.x, model.dimensions.y, model.dimensions.z)}/>) : null}
-          {!result && hasCut && mode === 'FREE' ? <FreeCutEditor geometry={model.geometry} size={Math.max(model.dimensions.x, model.dimensions.y, model.dimensions.z)} drawing={drawing} cut={freeCut} visible={showPlane} editingConnector={editingConnector && !!freeCut?.connector?.enabled && !drawing && !editingSurface && !busy} editing={editingSurface && !busy} selectedPoint={selectedSurfacePoint} onSelectPoint={setSelectedSurfacePoint} onDraw={receiveDraw} onCancel={cancelDraw} onError={drawError}/> : null}
+          {!result && hasCut && mode === 'FREE' ? <FreeCutEditor key={activeId} geometry={model.geometry} size={Math.max(model.dimensions.x, model.dimensions.y, model.dimensions.z)} drawing={drawing} cut={freeCut} visible={showPlane} editingConnector={editingConnector && !!freeCut?.connector?.enabled && !drawing && !editingSurface && !busy} editing={editingSurface && !busy} selectedPoint={selectedSurfacePoint} onSelectPoint={setSelectedSurfacePoint} onDraw={receiveDraw} onCancel={cancelDraw} onError={drawError}/> : null}
         </Viewport></ViewerBoundary>
         <div className="canvas-tools" style={drawing ? { pointerEvents: 'none', opacity: .5 } : undefined}><button className="tool active" title="Girar e navegar" aria-label="Navegação ativa"><MousePointer2 size={19}/></button><div className="tool-divider"/><button className="tool" title="Enquadrar modelo" aria-label="Enquadrar modelo" onClick={() => setReset(value => value + 1)}><Expand size={19}/></button><button className={wireframe ? 'tool active' : 'tool'} title="Mostrar malha" aria-label="Mostrar malha" aria-pressed={wireframe} onClick={() => setWireframe(value => !value)}><Box size={19}/></button>{hasCut && !result ? <button className="tool" title="Mostrar ou ocultar corte" aria-label="Mostrar ou ocultar corte" aria-pressed={showPlane} onClick={() => setShowPlane(value => !value)}>{showPlane ? <Eye size={19}/> : <EyeOff size={19}/>}</button> : null}</div>
         {!hasCut && !result ? <div className="intro-overlay"><span className="eyebrow">DO MODELO ÀS PEÇAS</span><h1>Seu modelo.<br/>Novas possibilidades.</h1><p>Desenhe seu próprio corte.<br/>Você escolhe a curva e o alcance.</p></div> : null}
@@ -176,7 +160,7 @@ export default function App() {
             <button className="primary full" disabled={!!busy} onClick={startCut}><Scissors size={17}/>Desenhar corte livre<ArrowRight size={16}/></button>
             <div className="steps-mini"><div><span>01</span><p>Desenhe a separação<small>Um traço que acompanha sua intenção.</small></p></div><div><span>02</span><p>Controle o alcance<small>Confira a frente e o fundo da faixa.</small></p></div><div><span>03</span><p>Construa e confira<small>Inspecione as peças antes de exportar.</small></p></div></div>
             <div className="tip"><p>Você pode começar e terminar o traço fora da silhueta. Para girar a vista, encerre ou cancele o desenho.</p></div>
-          </> : <CutControls mode={mode} onMode={changeMode} cut={freeCut} onCut={receiveDraw} drawing={drawing} editing={editingSurface} selectedPoint={selectedSurfacePoint} togglePointCurve={toggleSelectedPointCurve} editingConnector={editingConnector && !!freeCut?.connector?.enabled} toggleConnectorEditing={() => { setEditingConnector(value => !value); setEditingSurface(false); setSelectedSurfacePoint(null); setShowPlane(true); }} toggleEditing={() => { setEditingConnector(false); setEditingSurface(value => !value); setSelectedSurfacePoint(null); setShowPlane(true); }} startDraw={() => { setDrawing(true); setEditingSurface(false); setSelectedSurfacePoint(null); setEditingConnector(false); setShowPlane(true); }} cancelDraw={cancelDraw} busy={!!busy} radius={radius} offset={offset} tilt={tilt} turn={turn} setOffset={setOffset} setTilt={setTilt} setTurn={setTurn} reset={resetCut}/>}
+          </> : <CutControls mode={mode} onMode={changeMode} cut={freeCut} onCut={receiveDraw} drawing={drawing} editing={editingSurface} selectedPoint={selectedSurfacePoint} editingConnector={editingConnector && !!freeCut?.connector?.enabled} toggleConnectorEditing={() => { setEditingConnector(value => !value); setEditingSurface(false); setSelectedSurfacePoint(null); setShowPlane(true); }} toggleEditing={() => { setEditingConnector(false); setEditingSurface(value => !value); setSelectedSurfacePoint(null); setShowPlane(true); }} startDraw={() => { setDrawing(true); setEditingSurface(false); setSelectedSurfacePoint(null); setEditingConnector(false); setShowPlane(true); }} cancelDraw={cancelDraw} busy={!!busy} radius={radius} offset={offset} tilt={tilt} turn={turn} setOffset={setOffset} setTilt={setTilt} setTurn={setTurn} reset={resetCut}/>}
         </>}</div>
         <div className="build-footer">{result ? <><button className="primary full" disabled={!!busy} onClick={() => void exportResult()}><ArrowDownToLine size={17}/>Exportar peças <span>ZIP</span></button><button className="text-button centered" disabled={!!busy} onClick={restore}><ArrowLeft size={14}/>Voltar e ajustar corte</button></> : <><div className="build-caption"><span className={hasCut ? 'ready-dot' : 'idle-dot'}/>{drawing ? 'Desenhe sobre a região desejada' : editingSurface ? 'Conclua a edição dos pontos para construir' : connectorEditActive ? 'Conclua a edição do pino para construir' : canBuild ? 'Confira a prévia antes de construir' : hasCut ? 'Conclua ou remova os cortes sem traço' : 'Desenhe um traço para continuar'}</div><button className="primary full" disabled={!canBuild || !!busy} onClick={() => void build()}><Layers size={17}/>Construir peças<ArrowRight size={16}/></button><p>A geometria só muda nesta etapa.</p></>}</div>
       </aside>

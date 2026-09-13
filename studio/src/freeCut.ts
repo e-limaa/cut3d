@@ -16,6 +16,7 @@ export interface ConnectorOptions {
   preset?: string;
 }
 export interface FreeCut {
+  bezier?: import('./surfaceBezier').SurfaceBezier;
   points: [number, number][];
   origin: Vec3;
   u: Vec3;

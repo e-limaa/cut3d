@@ -15,10 +15,18 @@ export function cutRails(cut: FreeCut): {front: Vec3[]; back: Vec3[]} {
 }
 
 /** Same bilinear ruled surface used by the cutter, in world coordinates. */
+export function railParameters(cut: FreeCut): number[] {
+  if (!cut.bezier) return cutRails(cut).front.map((_, i, rail) => i / (rail.length - 1));
+  const segments = cut.bezier.segments.front;
+  return [...segments.flatMap((samples, i) => samples.map((_, j) => (i + j / samples.length) / segments.length)), 1];
+}
+
 export function getConnectorFrame(cut: FreeCut): {center: Vec3; normal: Vec3; tangent: Vec3} {
   const {front,back}=cutRails(cut);
-  const t=Math.max(0,Math.min(1,cut.connector?.along??.5))*(front.length-1);
-  const i=Math.min(front.length-2,Math.floor(t)), f=t-i;
+  const t=Math.max(0,Math.min(1,cut.connector?.along??.5));
+  const parameters=railParameters(cut);
+  const found=parameters.findIndex((value, index)=>index>0 && value>t);
+  const i=found<0 ? front.length-2 : found-1, f=(t-parameters[i])/(parameters[i+1]-parameters[i]);
   const a=Math.max(0,Math.min(1,cut.connector?.across??.5));
   const start=mix(front[i],front[i+1],f), end=mix(back[i],back[i+1],f);
   const tangent=unit(mix(sub(front[i+1],front[i]),sub(back[i+1],back[i]),a));
