@@ -2,10 +2,30 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { FreeCut } from './freeCut';
-import { SurfaceProjector, attachStrokeToSurface, dragPenControl, dragSurfacePoint, penAnchorIndices, rebuildPenRails } from './surfaceAnchors';
+import { SurfaceProjector, attachStrokeToSurface, dragPenControl, dragSurfacePoint, penAnchorIndices, rebuildPenRails, surfaceCurve } from './surfaceAnchors';
 
 const stroke: FreeCut = { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], w: [0, -1, 0], points: [[-14, 1], [-5, 3], [0, 1], [5, 3], [14, 1]], depthMin: -10, depthMax: 10, kerf: .2 };
 describe('surface anchored editing', () => {
+  it('moves 3D Bezier handles with the anchor and edits a tangent without rebuilding the opposite surface', () => {
+    const geometry=new THREE.SphereGeometry(10,48,32), projector=new SurfaceProjector(geometry);
+    const original=attachStrokeToSurface(projector,stroke);
+    const anchors=penAnchorIndices(original.points.length), index=anchors[4];
+    const cut:FreeCut={...original,penCurves:{[index]:{in:[-2,1],out:[2,1]}}};
+    const handles=surfaceCurve(cut,'front',index)!;
+    const ray=new THREE.Ray(new THREE.Vector3(1,-30,3),new THREE.Vector3(0,1,0));
+    const moved=dragPenControl(projector,cut,index,'anchor',ray,'front');
+    const delta=projector.hit(ray)!.sub(new THREE.Vector3(...cut.rails!.front[index]));
+    for (const kind of ['in','out'] as const) {
+      expect(surfaceCurve(moved,'front',index)![kind]).toEqual(new THREE.Vector3(...handles[kind]).add(delta).toArray());
+    }
+    const out=surfaceCurve(moved,'front',index)!.out;
+    const tangent=dragPenControl(projector,moved,index,'out',new THREE.Ray(new THREE.Vector3(out[0]+.4,-30,out[2]+.3),new THREE.Vector3(0,1,0)),'front');
+    expect(tangent.rails!.back).toBe(cut.rails!.back);
+    expect(tangent.rails!.front[index]).toBe(moved.rails!.front[index]);
+    expect(surfaceCurve(tangent,'front',index)!.out[0]).toBeCloseTo(out[0]+.4);
+    for(let i=0;i<cut.points.length;i++) if(i<=anchors[3] || i>=anchors[5]) expect(tangent.rails!.front[i]).toBe(cut.rails!.front[i]);
+    projector.dispose();geometry.dispose();
+  });
   it.each([0, -1])('drags a shared endpoint without pulling its two rails apart (%s)', endpoint => {
     const geometry = new THREE.SphereGeometry(10, 48, 32), projector = new SurfaceProjector(geometry);
     const cut = attachStrokeToSurface(projector, stroke);

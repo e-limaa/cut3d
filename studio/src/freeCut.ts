@@ -28,5 +28,7 @@ export interface FreeCut {
   rails?: { front: Vec3[]; back: Vec3[] };
   /** Optional Bezier handles for Pen-style editing, stored in the cut's 2D frame. */
   penCurves?: Record<number, { in: [number, number]; out: [number, number] }>;
+  /** World-space handles, independent for each surface of the contour. */
+  surfaceCurves?: Partial<Record<'front' | 'back', Record<number, { in: Vec3; out: Vec3 }>>>;
   connector?: ConnectorOptions;
 }

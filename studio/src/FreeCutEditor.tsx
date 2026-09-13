@@ -4,7 +4,7 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import type { FreeCut, Vec3 } from './freeCut';
 import { freeCutPoint, simplifyStroke } from './strokeMath';
-import { SurfaceProjector, attachStrokeToSurface, dragPenControl, penAnchorIndices, rebuildPenRails } from './surfaceAnchors';
+import { SurfaceProjector, attachStrokeToSurface, dragPenControl, penAnchorIndices, rebuildSurfaceCurve, surfaceCurve } from './surfaceAnchors';
 import ConnectorPreview from './ConnectorPreview';
 import ConnectorGizmo from './ConnectorGizmo';
 
@@ -48,6 +48,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
   const [live, setLive] = useState<THREE.Vector3[]>([]);
   const [dragged, setDragged] = useState<{ kind: 'anchor' | 'in' | 'out'; index: number; side?: 'front' | 'back' } | null>(null);
   const dragStart = useRef<FreeCut | null>(null);
+  const [selectedSide,setSelectedSide] = useState<'front'|'back'>('front');
   const [connectorDragging, setConnectorDragging] = useState(false);
   const receiveConnectorDrag = useCallback((value:boolean)=>setConnectorDragging(value),[]);
   const projector = useMemo(() => new SurfaceProjector(geometry), [geometry]);
@@ -60,8 +61,10 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
     const after = new Set(curveKeys.split(',').filter(Boolean));
     const changed = [...new Set([...before, ...after])].filter(key => before.has(key) !== after.has(key)).map(Number);
     previousCurveKeys.current = curveKeys;
-    onDraw(rebuildPenRails(projector, cut, changed));
-  }, [curveKeys, cut, projector, onDraw]);
+    let updated=cut;
+    for (const index of changed) updated=rebuildSurfaceCurve(projector,updated,selectedSide,index);
+    onDraw(updated);
+  }, [curveKeys, cut, projector, onDraw, selectedSide]);
   useEffect(() => { if (!editing) { setDragged(null); onSelectPoint(null); } }, [editing, onSelectPoint]);
   useEffect(() => {
     if (!drawing) { setLive([]); return; }
@@ -134,7 +137,13 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       const rect = canvas.getBoundingClientRect();
       const candidates: {index:number; kind:'anchor'|'in'|'out'; side:'front'|'back'; distance:number}[] = [];
       const consider = (point: THREE.Vector3, index:number, kind:'anchor'|'in'|'out', side:'front'|'back') => {
-        if (!projector.isVisible(point, camera.position)) return;
+        if (kind === 'anchor') {
+          const ndc=point.clone().project(camera);
+          const visibilityRay=new THREE.Raycaster();
+          visibilityRay.setFromCamera(new THREE.Vector2(ndc.x,ndc.y),camera);
+          const hit=projector.hit(visibilityRay.ray);
+          if(hit && hit.distanceTo(visibilityRay.ray.origin)+size*1e-5 < point.distanceTo(visibilityRay.ray.origin)) return;
+        }
         const projected = point.clone().project(camera);
         if (projected.z < -1 || projected.z > 1) return;
         const distance = Math.hypot(rect.left + (projected.x+1)*rect.width/2-event.clientX, rect.top+(1-projected.y)*rect.height/2-event.clientY);
@@ -146,8 +155,8 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       }
       if (selectedPoint !== null && cut.penCurves?.[selectedPoint]) {
         for (const kind of ['in','out'] as const) {
-          const pair = projector.pair(cut, cut.penCurves[selectedPoint][kind], front[selectedPoint]);
-          if (pair) { consider(new THREE.Vector3(...pair.front),selectedPoint,kind,'front'); consider(new THREE.Vector3(...pair.back),selectedPoint,kind,'back'); }
+          const handles=surfaceCurve(cut,selectedSide,selectedPoint);
+          if(handles) consider(new THREE.Vector3(...handles[kind]),selectedPoint,kind,selectedSide);
         }
       }
       candidates.sort((a,b)=>a.distance-b.distance);
@@ -157,13 +166,13 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       const orbit=controls as unknown as {enabled:boolean}|null;
       if (orbit) orbit.enabled=false;
       canvas.setPointerCapture(event.pointerId);
-      onSelectPoint(closest.index); dragStart.current=cut;
+      onSelectPoint(closest.index); setSelectedSide(closest.side); dragStart.current=cut;
       setDragged({kind:closest.kind,index:closest.index,side:closest.side});
       document.body.style.cursor='grabbing';
     };
     canvas.addEventListener('pointerdown',down,true);
     return ()=>canvas.removeEventListener('pointerdown',down,true);
-  }, [editing, visible, drawing, cut, gl, camera, projector, controls, editableHandleIndices, front, back, selectedPoint, onSelectPoint]);
+  }, [editing, visible, drawing, cut, gl, camera, projector, controls, editableHandleIndices, front, back, selectedPoint, onSelectPoint, selectedSide, size]);
   const surface = useMemo(() => {
     const geometry = new THREE.BufferGeometry();
     if (front.length < 2) return geometry;
@@ -205,18 +214,18 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       {editing ? editableHandleIndices.flatMap(index => (['front', 'back'] as const).map(side => {
         if (side === 'back' && (index === 0 || index === front.length-1)) return null;
         const point = side === 'front' ? front[index] : back[index];
-        return <SurfaceHandle key={`${side}-${index}`} point={point} selected={selectedPoint === index} color="#2f7f55" onPointerDown={event => {
+        return <SurfaceHandle key={`${side}-${index}`} point={point} selected={selectedPoint === index && selectedSide === side} color="#2f7f55" onPointerDown={event => {
           if (!projector.isVisible(point, camera.position)) return;
           event.stopPropagation(); const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=false;
           onSelectPoint(index); dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind: 'anchor', index, side });
         }}/>;
       })) : null}
-      {editing && selectedPoint !== null && cut.penCurves?.[selectedPoint] ? (['front', 'back'] as const).flatMap(side => {
+      {editing && selectedPoint !== null && cut.penCurves?.[selectedPoint] ? [selectedSide].flatMap(side => {
         const anchor = side === 'front' ? front[selectedPoint] : back[selectedPoint];
         return (['in', 'out'] as const).map(kind => {
-          const pair = projector.pair(cut, cut.penCurves![selectedPoint][kind]);
-          if (!pair) return null;
-          const handle = new THREE.Vector3(...pair[side]);
+          const handles=surfaceCurve(cut,side,selectedPoint);
+          if (!handles) return null;
+          const handle = new THREE.Vector3(...handles[kind]);
           return <group key={`${side}-${selectedPoint}-${kind}`}><Line points={[anchor, handle]} color="#d89a3b" lineWidth={1.5} depthTest={false} renderOrder={11}/><SurfaceHandle point={handle} selected={dragged?.kind === kind && dragged.index === selectedPoint} color="#d89a3b" overlay onPointerDown={event => {
             if (!projector.isVisible(handle, camera.position)) return;
             event.stopPropagation(); const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=false;

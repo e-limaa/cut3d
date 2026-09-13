@@ -129,6 +129,40 @@ function cubic(a: [number, number], b: [number, number], c: [number, number], d:
   return [s*s*s*a[0] + 3*s*s*t*b[0] + 3*s*t*t*c[0] + t*t*t*d[0], s*s*s*a[1] + 3*s*s*t*b[1] + 3*s*t*t*c[1] + t*t*t*d[1]];
 }
 
+export function surfaceCurve(cut: FreeCut, side: 'front'|'back', index: number) {
+  if (!cut.penCurves?.[index] || !cut.rails) return undefined;
+  const saved = cut.surfaceCurves?.[side]?.[index];
+  if (saved) return saved;
+  const anchors = penAnchorIndices(cut.points.length), slot = anchors.indexOf(index);
+  const rail = cut.rails[side], anchor = new THREE.Vector3(...rail[index]);
+  const tangent = new THREE.Vector3(...rail[anchors[Math.min(anchors.length-1,slot+1)]])
+    .sub(new THREE.Vector3(...rail[anchors[Math.max(0,slot-1)]])).multiplyScalar(.25);
+  return { in: anchor.clone().sub(tangent).toArray() as Vec3, out: anchor.clone().add(tangent).toArray() as Vec3 };
+}
+
+/** Rebuild only the selected surface, from its current 3D anchors. */
+export function rebuildSurfaceCurve(projector: SurfaceProjector, cut: FreeCut, side: 'front'|'back', index: number): FreeCut {
+  if (!cut.rails) return cut;
+  const anchors = penAnchorIndices(cut.points.length), slot = anchors.indexOf(index);
+  const rail = cut.rails[side].slice();
+  for (const segment of [slot, slot+1]) {
+    if (segment <= 0 || segment >= anchors.length) continue;
+    const from = anchors[segment-1], to = anchors[segment];
+    const a = new THREE.Vector3(...rail[from]), d = new THREE.Vector3(...rail[to]);
+    const left = surfaceCurve(cut,side,from), right = surfaceCurve(cut,side,to);
+    const b = left ? new THREE.Vector3(...left.out) : a.clone().lerp(d,1/3);
+    const c = right ? new THREE.Vector3(...right.in) : a.clone().lerp(d,2/3);
+    for (let i=from+1;i<to;i++) {
+      const t=(i-from)/(to-from), s=1-t;
+      const desired=a.clone().multiplyScalar(s*s*s).addScaledVector(b,3*s*s*t).addScaledVector(c,3*s*t*t).addScaledVector(d,t*t*t);
+      const snapped=projector.nearest(desired);
+      if (!snapped) return cut;
+      rail[i]=snapped.toArray() as Vec3;
+    }
+  }
+  return {...cut, rails:{...cut.rails,[side]:rail}};
+}
+
 /** Rebuild only spans touching affected controls; omit them for an explicit full rebuild. */
 export function rebuildPenRails(projector: SurfaceProjector, cut: FreeCut, affectedIndices?: readonly number[]): FreeCut {
   if (!cut.rails) return cut;
@@ -166,6 +200,18 @@ export function rebuildPenRails(projector: SurfaceProjector, cut: FreeCut, affec
 /** Move one unified Pen control. Pass the immutable pointer-down cut for every drag update. */
 export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index: number, kind: 'anchor' | 'in' | 'out', ray: THREE.Ray, surfaceSide?: 'front' | 'back'): FreeCut {
   if (!cut.rails || !penAnchorIndices(cut.points.length).includes(index)) return cut;
+  if (kind !== 'anchor' && surfaceSide) {
+    const existing=surfaceCurve(cut,surfaceSide,index);
+    if (!existing) return cut;
+    const plane=new THREE.Plane().setFromNormalAndCoplanarPoint(ray.direction,new THREE.Vector3(...existing[kind]));
+    const hit=ray.intersectPlane(plane,new THREE.Vector3());
+    if (!hit) return cut;
+    const anchor = new THREE.Vector3(...cut.rails[surfaceSide][index]);
+    const opposite = anchor.clone().multiplyScalar(2).sub(hit).toArray() as Vec3;
+    const handles = kind === 'in' ? {in:hit.toArray() as Vec3,out:opposite} : {in:opposite,out:hit.toArray() as Vec3};
+    const draft={...cut,surfaceCurves:{...cut.surfaceCurves,[surfaceSide]:{...cut.surfaceCurves?.[surfaceSide],[index]:handles}}};
+    return rebuildSurfaceCurve(projector,draft,surfaceSide,index);
+  }
   const hit = projector.hit(ray);
   if (!hit) return cut;
   if (kind === 'anchor' && surfaceSide) {
@@ -177,6 +223,7 @@ export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index:
     const endpoint = index === 0 || index === cut.points.length - 1;
     const sides: ('front'|'back')[] = endpoint ? ['front','back'] : [surfaceSide];
     const rails = { ...cut.rails };
+    const surfaceCurves = {...cut.surfaceCurves};
     const points = cut.points.slice();
     const penCurves = { ...(cut.penCurves ?? {}) };
     const previous = points[index];
@@ -192,6 +239,11 @@ export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index:
       const original = cut.rails[side];
       const rail = original.slice();
       const delta = hit.clone().sub(new THREE.Vector3(...original[index]));
+      const handles=surfaceCurve(cut,side,index);
+      if(handles) surfaceCurves[side]={...surfaceCurves[side],[index]:{
+        in:new THREE.Vector3(...handles.in).add(delta).toArray() as Vec3,
+        out:new THREE.Vector3(...handles.out).add(delta).toArray() as Vec3,
+      }};
       for (let i = from; i <= to; i++) {
         if (i === index) { rail[i] = hit.toArray() as Vec3; continue; }
         const weight = i < index ? (i-from)/(index-from) : (to-i)/(to-index);
@@ -203,7 +255,9 @@ export function dragPenControl(projector: SurfaceProjector, cut: FreeCut, index:
       }
       rails[side] = rail;
     }
-    return { ...cut, points, penCurves, rails };
+    let result: FreeCut = { ...cut, points, penCurves, surfaceCurves, rails };
+    for (const side of sides) if (surfaceCurve(cut,side,index)) result=rebuildSurfaceCurve(projector,result,side,index);
+    return result;
   }
   const relative = hit.clone().sub(new THREE.Vector3(...cut.origin));
   const target: [number, number] = [relative.dot(new THREE.Vector3(...cut.u)), relative.dot(new THREE.Vector3(...cut.v))];
