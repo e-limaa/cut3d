@@ -4,7 +4,7 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import type { FreeCut, Vec3 } from './freeCut';
 import { freeCutPoint, simplifyStroke } from './strokeMath';
-import { SurfaceProjector, attachStrokeToSurface, dragPenControl, penAnchorIndices, rebuildSurfaceCurve, surfaceCurve, validCutSurface } from './surfaceAnchors';
+import { SurfaceProjector, attachStrokeToSurface, dragSurfacePoint, validCutSurface } from './surfaceAnchors';
 import ConnectorPreview from './ConnectorPreview';
 import ConnectorGizmo from './ConnectorGizmo';
 
@@ -33,7 +33,7 @@ function SurfaceHandle({ point, color, selected, overlay = false }: {point: THRE
     const worldPerPixel = camera instanceof THREE.OrthographicCamera
       ? (camera.top-camera.bottom)/(camera.zoom*viewport.height)
       : 2*camera.position.distanceTo(point)*Math.tan(THREE.MathUtils.degToRad((camera as THREE.PerspectiveCamera).fov/2))/viewport.height;
-    group.current.scale.setScalar(worldPerPixel * 5);
+    group.current.scale.setScalar(worldPerPixel * 3.5);
   });
   return <group ref={group} position={point}>
     <mesh scale={selected || hovered ? 1.35 : 1} renderOrder={12}><sphereGeometry args={[1,16,10]}/><meshBasicMaterial color={selected ? '#ffe098' : hovered ? '#ffffff' : color} depthTest={!overlay}/></mesh>
@@ -54,20 +54,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
   const [connectorDragging, setConnectorDragging] = useState(false);
   const receiveConnectorDrag = useCallback((value:boolean)=>setConnectorDragging(value),[]);
   const projector = useMemo(() => new SurfaceProjector(geometry), [geometry]);
-  const curveKeys = Object.keys(cut?.penCurves ?? {}).sort((a, b) => Number(a) - Number(b)).join(',');
-  const previousCurveKeys = useRef(curveKeys);
   useEffect(() => () => projector.dispose(), [projector]);
-  useEffect(() => {
-    if (!cut?.rails || previousCurveKeys.current === curveKeys) return;
-    const before = new Set(previousCurveKeys.current.split(',').filter(Boolean));
-    const after = new Set(curveKeys.split(',').filter(Boolean));
-    const changed = [...new Set([...before, ...after])].filter(key => before.has(key) !== after.has(key)).map(Number);
-    previousCurveKeys.current = curveKeys;
-    let updated=cut;
-    for (const index of changed) updated=rebuildSurfaceCurve(projector,updated,selectedSide,index);
-    if (validCutSurface(updated,projector.size)) onDraw(updated);
-    else onError('Essa curva dobra a superfície do corte. Ajuste os pontos vizinhos antes de ativá-la.');
-  }, [curveKeys, cut, projector, onDraw, selectedSide]);
   useEffect(() => { if (!editing) { setDragged(null); onSelectPoint(null); } }, [editing, onSelectPoint]);
   useEffect(() => {
     if (!drawing) { setLive([]); return; }
@@ -129,7 +116,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
 
   const front = useMemo(() => cut?.rails?.front.map(point => new THREE.Vector3(...point)) ?? cut?.points.map(point => worldPoint(cut, point, cut.depthMax)) ?? [], [cut]);
   const back = useMemo(() => cut?.rails?.back.map(point => new THREE.Vector3(...point)) ?? cut?.points.map(point => worldPoint(cut, point, cut.depthMin)) ?? [], [cut]);
-  const editableHandleIndices = useMemo(() => penAnchorIndices(front.length), [front.length]);
+  const editableHandleIndices = useMemo(() => Array.from({length:front.length},(_,index)=>index), [front.length]);
   // Resolve the closest visible control in screen space before OrbitControls
   // receives the gesture. Large overlapping 3D hit spheres picked neighbours.
   useEffect(() => {
@@ -154,13 +141,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       };
       for (const index of editableHandleIndices) {
         consider(front[index], index, 'anchor', 'front');
-        if (index !== 0 && index !== front.length-1) consider(back[index], index, 'anchor', 'back');
-      }
-      if (selectedPoint !== null && cut.penCurves?.[selectedPoint]) {
-        for (const kind of ['in','out'] as const) {
-          const handles=surfaceCurve(cut,selectedSide,selectedPoint);
-          if(handles) consider(new THREE.Vector3(...handles[kind]),selectedPoint,kind,selectedSide);
-        }
+        if (front[index].distanceTo(back[index]) > size*1e-7) consider(back[index], index, 'anchor', 'back');
       }
       candidates.sort((a,b)=>a.distance-b.distance);
       const closest = candidates[0];
@@ -170,7 +151,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
         onError('Este traço já contém uma dobra. Redesenhe o corte para iniciar a edição com uma superfície válida.');
         return;
       }
-      const control=closest.kind==='anchor' ? (closest.side==='front'?front[closest.index]:back[closest.index]) : new THREE.Vector3(...surfaceCurve(cut,closest.side,closest.index)![closest.kind]);
+      const control=closest.side==='front'?front[closest.index]:back[closest.index];
       const projected=control.clone().project(camera);
       pointerOffset.current.set(projected.x-((event.clientX-rect.left)/rect.width*2-1),projected.y-(1-(event.clientY-rect.top)/rect.height*2));
       rejectedDrag.current=false;
@@ -200,7 +181,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       const rect = canvas.getBoundingClientRect();
       raycaster.setFromCamera(new THREE.Vector2((event.clientX - rect.left) / rect.width * 2 - 1, 1 - (event.clientY - rect.top) / rect.height * 2).add(pointerOffset.current), camera);
       const baseline = dragStart.current ?? cut;
-      const next = dragPenControl(projector, baseline, dragged.index, dragged.kind, raycaster.ray, dragged.side);
+      const next = dragSurfacePoint(projector, baseline, dragged.side ?? 'front', dragged.index, raycaster.ray);
       if (next !== baseline) {
         if (validCutSurface(next,projector.size)) { rejectedDrag.current=false; onDraw(next); invalidate(); }
         else rejectedDrag.current=true;
@@ -226,7 +207,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       <Line points={front} color="#236445" lineWidth={2.5} depthTest={false} renderOrder={7}/><Line points={back} color="#387f56" lineWidth={2} dashed dashSize={size * .015} gapSize={size * .01} depthTest={false} renderOrder={7}/>
       {[0, front.length - 1].map(i => <Line key={i} points={[front[i], back[i]]} color="#387f56" lineWidth={1.5} depthTest={false} renderOrder={7}/>)}
       {editing ? editableHandleIndices.flatMap(index => (['front', 'back'] as const).map(side => {
-        if (side === 'back' && (index === 0 || index === front.length-1)) return null;
+        if (side === 'back' && front[index].distanceTo(back[index]) <= size*1e-7) return null;
         const point = side === 'front' ? front[index] : back[index];
         return <SurfaceHandle key={`${side}-${index}`} point={point} selected={selectedPoint === index && selectedSide === side} color="#2f7f55" onPointerDown={event => {
           if (!projector.isVisible(point, camera.position)) return;
@@ -234,19 +215,7 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
           onSelectPoint(index); dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind: 'anchor', index, side });
         }}/>;
       })) : null}
-      {editing && selectedPoint !== null && cut.penCurves?.[selectedPoint] ? [selectedSide].flatMap(side => {
-        const anchor = side === 'front' ? front[selectedPoint] : back[selectedPoint];
-        return (['in', 'out'] as const).map(kind => {
-          const handles=surfaceCurve(cut,side,selectedPoint);
-          if (!handles) return null;
-          const handle = new THREE.Vector3(...handles[kind]);
-          return <group key={`${side}-${selectedPoint}-${kind}`}><Line points={[anchor, handle]} color="#d89a3b" lineWidth={1.5} depthTest={false} renderOrder={11}/><SurfaceHandle point={handle} selected={dragged?.kind === kind && dragged.index === selectedPoint} color="#d89a3b" overlay onPointerDown={event => {
-            if (!projector.isVisible(handle, camera.position)) return;
-            event.stopPropagation(); const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=false;
-            dragStart.current = cut; document.body.style.cursor = 'grabbing'; setDragged({ kind, index: selectedPoint, side });
-          }}/></group>;
-        });
-      }) : null}
+
     </> : null}
   </group>;
 }
