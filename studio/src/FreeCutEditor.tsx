@@ -4,7 +4,7 @@ import { Line } from '@react-three/drei';
 import * as THREE from 'three';
 import type { FreeCut, Vec3 } from './freeCut';
 import { freeCutPoint, simplifyStroke } from './strokeMath';
-import { SurfaceProjector, attachStrokeToSurface, dragSurfacePoint, validCutSurface } from './surfaceAnchors';
+import { SurfaceProjector, attachStrokeToSurface, dragSurfacePoint } from './surfaceAnchors';
 import ConnectorPreview from './ConnectorPreview';
 import ConnectorGizmo from './ConnectorGizmo';
 
@@ -48,7 +48,6 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
   const [live, setLive] = useState<THREE.Vector3[]>([]);
   const [dragged, setDragged] = useState<{ kind: 'anchor' | 'in' | 'out'; index: number; side?: 'front' | 'back' } | null>(null);
   const dragStart = useRef<FreeCut | null>(null);
-  const rejectedDrag = useRef(false);
   const pointerOffset = useRef(new THREE.Vector2());
   const [selectedSide,setSelectedSide] = useState<'front'|'back'>('front');
   const [connectorDragging, setConnectorDragging] = useState(false);
@@ -147,14 +146,9 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       const closest = candidates[0];
       if (!closest) return;
       event.preventDefault(); event.stopImmediatePropagation();
-      if (!validCutSurface(cut,projector.size)) {
-        onError('Este traço já contém uma dobra. Redesenhe o corte para iniciar a edição com uma superfície válida.');
-        return;
-      }
       const control=closest.side==='front'?front[closest.index]:back[closest.index];
       const projected=control.clone().project(camera);
       pointerOffset.current.set(projected.x-((event.clientX-rect.left)/rect.width*2-1),projected.y-(1-(event.clientY-rect.top)/rect.height*2));
-      rejectedDrag.current=false;
       const orbit=controls as unknown as {enabled:boolean}|null;
       if (orbit) orbit.enabled=false;
       canvas.setPointerCapture(event.pointerId);
@@ -183,11 +177,10 @@ export default function FreeCutEditor({ geometry, size, drawing, cut, visible, e
       const baseline = dragStart.current ?? cut;
       const next = dragSurfacePoint(projector, baseline, dragged.side ?? 'front', dragged.index, raycaster.ray);
       if (next !== baseline) {
-        if (validCutSurface(next,projector.size)) { rejectedDrag.current=false; onDraw(next); invalidate(); }
-        else rejectedDrag.current=true;
+        onDraw(next); invalidate();
       }
     };
-    const up = (event?: PointerEvent) => { if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); setDragged(null); dragStart.current = null; document.body.style.cursor = ''; const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=true; if(rejectedDrag.current) onError('Esse movimento cruzaria a superfície do corte. Mantive a última posição válida; ajuste também o ponto vizinho.'); rejectedDrag.current=false; };
+    const up = (event?: PointerEvent) => { if (event && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); setDragged(null); dragStart.current = null; document.body.style.cursor = ''; const orbit=controls as unknown as {enabled:boolean}|null; if(orbit) orbit.enabled=true; };
     const key = (event: KeyboardEvent) => { if (event.key === 'Escape' && dragStart.current) { onDraw(dragStart.current); up(); } };
     canvas.addEventListener('pointermove', move); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
     window.addEventListener('keydown', key);
