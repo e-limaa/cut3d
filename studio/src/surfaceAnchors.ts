@@ -2,6 +2,13 @@ import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import type { FreeCut, Vec3 } from './freeCut';
 import { freeCutPoint, simplifyStroke } from './strokeMath';
+import { ruledSheet } from './geometry/ruledSheet';
+
+/** The editor must accept only surfaces that the cutter can actually build. */
+export function validCutSurface(cut: FreeCut, extent: number): boolean {
+  if (!cut.rails) return false;
+  try { ruledSheet(cut,extent); return true; } catch { return false; }
+}
 
 export class SurfaceProjector {
   readonly bvh: MeshBVH;

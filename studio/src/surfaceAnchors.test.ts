@@ -2,10 +2,17 @@ import { describe, it, expect, vi } from 'vitest';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { FreeCut } from './freeCut';
-import { SurfaceProjector, attachStrokeToSurface, dragPenControl, dragSurfacePoint, penAnchorIndices, rebuildPenRails, surfaceCurve } from './surfaceAnchors';
+import { SurfaceProjector, attachStrokeToSurface, dragPenControl, dragSurfacePoint, penAnchorIndices, rebuildPenRails, surfaceCurve, validCutSurface } from './surfaceAnchors';
 
 const stroke: FreeCut = { origin: [0, 0, 0], u: [1, 0, 0], v: [0, 0, 1], w: [0, -1, 0], points: [[-14, 1], [-5, 3], [0, 1], [5, 3], [14, 1]], depthMin: -10, depthMax: 10, kerf: .2 };
 describe('surface anchored editing', () => {
+  it('rejects a folded surface before the editor can publish it', () => {
+    const cut:FreeCut={...stroke,points:[[0,0],[1,0],[2,0],[3,0]],rails:{front:[[0,-1,0],[1,-1,0],[2,-1,0],[3,-1,0]],back:[[0,1,0],[1,1,0],[2,1,0],[3,1,0]]}};
+    expect(validCutSurface(cut,10)).toBe(true);
+    const folded:FreeCut={...cut,rails:{...cut.rails!,front:[[0,-1,0],[1,-1,0],[-1,-1,0],[3,-1,0]]}};
+    expect(validCutSurface(folded,10)).toBe(false);
+    expect(validCutSurface(cut,10)).toBe(true);
+  });
   it('moves 3D Bezier handles with the anchor and edits a tangent without rebuilding the opposite surface', () => {
     const geometry=new THREE.SphereGeometry(10,48,32), projector=new SurfaceProjector(geometry);
     const original=attachStrokeToSurface(projector,stroke);
